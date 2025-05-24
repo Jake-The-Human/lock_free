@@ -20,12 +20,11 @@
 #include <cassert>
 #include <immintrin.h>
 
-// #include <iostream>
-
 constexpr auto MAX_RETRIES = 100;
 
 Queue::Queue(std::size_t number_of_blocks, std::size_t block_size)
-    : block_size_(block_size), capacity_(number_of_blocks), data_(number_of_blocks * block_size) {
+    : block_size_(block_size), capacity_(number_of_blocks),
+      data_(number_of_blocks * block_size) {
   assert(data_.size() % block_size == 0);
 }
 
@@ -44,7 +43,6 @@ bool Queue::popFront(std::span<int> out_data) {
     if (read_index_.compare_exchange_weak(current_read_index, next_read_index,
                                           std::memory_order_acq_rel,
                                           std::memory_order_relaxed)) {
-      // std::cout << "popFront: " << current_read_index << std::endl;
       auto end = current_read_index + block_size_;
       std::copy(data_.begin() + current_read_index, data_.begin() + end,
                 out_data.begin());
@@ -71,7 +69,6 @@ bool Queue::pushBack(std::span<int> in_data) {
     if (write_index_.compare_exchange_weak(
             current_write_index, next_write_index, std::memory_order_acq_rel,
             std::memory_order_relaxed)) {
-      // std::cout << "pushBack: " << current_write_index << std::endl;
       std::copy(in_data.begin(), in_data.end(),
                 data_.begin() + current_write_index);
       size_.fetch_add(1, std::memory_order_acq_rel);
@@ -83,11 +80,9 @@ bool Queue::pushBack(std::span<int> in_data) {
 }
 
 bool Queue::isFull() const {
-  auto current_size = size_.load(std::memory_order_acquire);
-  return current_size == capacity_;
+  return size_.load(std::memory_order_acquire) == capacity_;
 }
 
 bool Queue::isEmpty() const {
-  auto current_size = size_.load(std::memory_order_acquire);
-  return current_size == 0;
+  return size_.load(std::memory_order_acquire) == 0;
 }
