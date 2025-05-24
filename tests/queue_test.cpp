@@ -19,10 +19,15 @@
 
 #include "../src/queue.hpp"
 
+#include <atomic>
+#include <catch2/benchmark/catch_benchmark.hpp>
+#include <thread>
+#include <vector>
+
 TEST_CASE("Factorials are computed", "[queue]") {
   constexpr auto block_size = 4;
   constexpr auto num_blocks = 8;
-  Queue queue(num_blocks, block_size);
+  Queue<int> queue(num_blocks, block_size);
 
   std::vector<int> input_block = {11, 21, 31, 41};
   std::vector<int> output_block(block_size);
@@ -44,14 +49,14 @@ TEST_CASE("Factorials are computed", "[queue]") {
   SECTION("Fill the Q") {
     std::vector<int> fill_test_block = {-1, 0, 0, 0};
 
-    for (int i = 0; i < num_blocks; ++i) {
+    for (int i = 0; i < queue.getCapacity(); ++i) {
       fill_test_block[0] = i;
       REQUIRE(queue.pushBack(fill_test_block));
     }
 
     REQUIRE(queue.isFull());
 
-    for (int i = 0; i < num_blocks; ++i) {
+    for (int i = 0; i < queue.getCapacity(); ++i) {
       REQUIRE(queue.popFront(output_block));
       REQUIRE(output_block[0] == i);
     }
@@ -59,7 +64,7 @@ TEST_CASE("Factorials are computed", "[queue]") {
   }
 
   SECTION("Overfill") {
-    for (int i = 0; i < num_blocks; ++i) {
+    for (int i = 0; i < queue.getCapacity(); ++i) {
       REQUIRE(queue.pushBack(input_block));
     }
     REQUIRE_FALSE(queue.pushBack(input_block));
@@ -67,7 +72,62 @@ TEST_CASE("Factorials are computed", "[queue]") {
   }
 }
 
-TEST_CASE("Wrap around", "[Queue]") {}
+// TEST_CASE("Manual throughput measurement", "[throughput]") {
+//   constexpr std::size_t block_size = 8;
+//   constexpr std::size_t num_blocks = 1024;
+//   Queue q(num_blocks, block_size);
+//   std::vector<int> block(block_size, 1);
 
-TEST_CASE("multithreaded"
-          "[Queue][threads]") {}
+//   constexpr int iterations = 1'000'000;
+//   auto start = std::chrono::high_resolution_clock::now();
+
+//   for (int i = 0; i < iterations; ++i) {
+//     while (!q.pushBack(block)) {
+//     }
+//   }
+
+//   auto end = std::chrono::high_resolution_clock::now();
+//   double seconds = std::chrono::duration<double>(end - start).count();
+//   double throughput = iterations / seconds;
+
+//   INFO("Throughput: " << throughput << " ops/sec\n");
+// }
+
+TEST_CASE("Queue multithreaded use", "[Queue][threads]") {
+  constexpr std::size_t block_size = 8;
+  constexpr std::size_t num_blocks = 64;
+  Queue<int> queue(num_blocks, block_size);
+
+  constexpr int num_iterations = 1000;
+
+  std::atomic<bool> producer_done = false;
+  std::thread producer([&] {
+    std::vector<int> data(block_size, 42);
+    for (int i = 0; i < num_iterations; ++i) {
+      while (!queue.pushBack(data)) {
+        std::this_thread::yield();
+      }
+    }
+    producer_done = true;
+  });
+
+  std::thread consumer([&] {
+    std::vector<int> data(block_size);
+    int count = 0;
+    while (count < num_iterations) {
+      if (queue.popFront(data)) {
+        REQUIRE(std::all_of(data.begin(), data.end(),
+                            [](int v) { return v == 42; }));
+        ++count;
+      } else {
+        if (producer_done.load())
+          break;
+        std::this_thread::yield();
+      }
+    }
+    REQUIRE(count == num_iterations);
+  });
+
+  producer.join();
+  consumer.join();
+}
